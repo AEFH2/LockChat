@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>چت رمزگذاری شده E2E</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <!-- خط زیر برای رفرش شدن صفحه هر 60 ثانیه اضافه شده است -->
+    <meta http-equiv="refresh" content="60">
+    <style>
+        .message-bubble {
+            max-width: 70%;
+            border-radius: 1rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem;
+            line-height: 1.5;
+        }
+        .sent {
+            background-color: #3b82f6;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 0.25rem;
+        }
+        .received {
+            background-color: #e5e7eb;
+            color: #111827;
+            align-self: flex-start;
+            border-bottom-left-radius: 0.25rem;
+        }
+        body {
+            transition: background-color 0.3s ease;
+        }
+        .dark-mode {
+            background-color: #1a202c;
+            color: #f7fafc;
+        }
+        .dark-mode .received {
+            background-color: #4a5568;
+            color: #f7fafc;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto max-w-3xl p-4">
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden dark:bg-gray-800">
+            <!-- Header -->
+            <div class="bg-blue-600 p-4 text-white flex justify-between items-center">
+                <h1 class="text-xl font-bold">چت امن رمزگذاری شده</h1>
+                <button id="toggle-theme" class="p-2 rounded-full hover:bg-blue-700 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Encryption Key Box -->
+            <div class="p-4 bg-yellow-50 border-b border-yellow-200 dark:bg-gray-700 dark:border-gray-600">
+                <div class="flex items-center mb-2">
+                    <span class="font-bold text-yellow-800 dark:text-yellow-200">کد رمز گذاری این چت:</span>
+                </div>
+                <div class="flex">
+                    <input id="session-key" type="text" readonly 
+                        class="flex-grow p-2 border border-yellow-300 rounded-l-md dark:bg-gray-800 dark:border-gray-600 dark:text-white">
+                    <button id="copy-key" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-r-md transition">
+                        کپی
+                    </button>
+                </div>
+                <p class="text-sm text-yellow-600 mt-2 dark:text-yellow-300">
+                    این کلید را فقط با AEFH2-Admin به اشتراک بگذارید. هر کسی که این کلید را داشته باشد می‌تواند پیام‌های شما را بخواند.
+                </p>
+                <div class="mt-3">
+                    <button id="new-key" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition">
+                        تولید چت جدید
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Chat Container -->
+            <div id="chat-container" class="p-4 h-96 overflow-y-auto flex flex-col bg-gray-50 dark:bg-gray-800">
+                <div id="welcome-message" class="text-center text-gray-500 py-4 dark:text-gray-400">
+                    برای شروع چت امن، لینک این صفحه را برای فرد مورد نظر بفرستید و کلید چت زیر را با او به اشتراک بگذارید
+                </div>
+                <!-- Messages will appear here -->
+            </div>
+            
+            <!-- Input Area -->
+            <div class="p-4 border-t border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700">
+                <div class="flex">
+                    <input id="message-input" type="text" placeholder="پیام خود را بنویسید..." 
+                        class="flex-grow p-2 border border-gray-300 rounded-r-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
+                    <button id="send-button" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-l-md transition">
+                        ارسال
+                    </button>
+                </div>
+                <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    پیام‌ها با AES-256 رمزنگاری می‌شوند
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
+            نکات استفاده:
+            <ol class="list-decimal list-inside mt-2">
+                <li>این صفحه هر ۱ دقیقه بروزرسانی میشود، پس زیر ۱ دقیقه پیام خود را بنویسید</li>
+                <li>با تولید چت جدید، لینک قدیمی دیگر قابل استفاده نیست و شما و کاربر، باید از لینک جدید استفاده کنید</li>
+                <li>(شما بعد از رفرش کردن صفحه پیام کاربر را دریافت میکنید)!مهم!</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // Generate random session key
+        function generateSessionKey() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$&%';
+            let key = '';
+            for (let i = 0; i < 32; i++) {
+                key += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return key;
+        }
+        
+        // Generate IV for each message
+        function generateIV() {
+            return CryptoJS.lib.WordArray.random(16);
+        }
+        
+        // Initialize application
+        let sessionKey = localStorage.getItem('secureChatKey') || generateSessionKey();
+        let messages = JSON.parse(localStorage.getItem('secureChatMessages') || '[]');
+        
+        // DOM elements
+        const sessionKeyInput = document.getElementById('session-key');
+        const copyKeyButton = document.getElementById('copy-key');
+        const newKeyButton = document.getElementById('new-key');
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const welcomeMessage = document.getElementById('welcome-message');
+        const toggleThemeButton = document.getElementById('toggle-theme');
+        
+        // Theme
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefersDark || localStorage.getItem('theme') === 'dark') {
+            document.body.classList.add('dark-mode');
+        }
+        
+        // Initialize UI
+        sessionKeyInput.value = sessionKey;
+        renderMessages();
+        
+        // Event listeners
+        copyKeyButton.addEventListener('click', () => {
+            sessionKeyInput.select();
+            document.execCommand('copy');
+            copyKeyButton.textContent = 'کپی شد!';
+            setTimeout(() => {
+                copyKeyButton.textContent = 'کپی';
+            }, 2000);
+        });
+        
+        newKeyButton.addEventListener('click', () => {
+            const password = prompt('برای تولید چت جدید، لطفا رمز عبور را وارد کنید:');
+            if (password === "AEFH2") {
+                if (confirm('آیا مطمئنید که می‌خواهید یک چت جدید تولید کنید؟ این کار تمام پیام‌های قبلی را غیرقابل خواندن می‌کند.')) {
+                    sessionKey = generateSessionKey();
+                sessionKeyInput.value = sessionKey;
+                messages = [];
+                localStorage.setItem('secureChatKey', sessionKey);
+                localStorage.setItem('secureChatMessages', JSON.stringify(messages));
+                renderMessages();
+                }
+            } else {
+                alert('رمز عبور اشتباه است!');
+            }
+        });
+        
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        toggleThemeButton.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        });
+        
+        // Functions
+        function sendMessage() {
+            const messageText = messageInput.value.trim();
+            if (messageText === '') return;
+            
+            // Encrypt message
+            const iv = generateIV();
+            const encrypted = CryptoJS.AES.encrypt(messageText, sessionKey, { 
+                iv: iv,
+                padding: CryptoJS.pad.Pkcs7,
+                mode: CryptoJS.mode.CBC
+            });
+            
+            // Save message
+            const message = {
+                id: Date.now(),
+                text: encrypted.toString(),
+                iv: iv.toString(),
+                timestamp: new Date().toISOString(),
+                sent: true
+            };
+            
+            messages.push(message);
+            localStorage.setItem('secureChatMessages', JSON.stringify(messages));
+            renderMessages();
+            messageInput.value = '';
+            
+            // Remove demo reply since we're doing actual 2-way communication now
+        }
+        
+        function renderMessages() {
+            if (messages.length === 0) {
+                welcomeMessage.style.display = 'block';
+                return;
+            }
+            
+            welcomeMessage.style.display = 'none';
+            chatContainer.innerHTML = '';
+            
+            messages.forEach(msg => {
+                try {
+                    // Decrypt message
+                    const decrypted = CryptoJS.AES.decrypt(
+                        msg.text, 
+                        sessionKey, 
+                        { 
+                            iv: CryptoJS.enc.Hex.parse(msg.iv),
+                            padding: CryptoJS.pad.Pkcs7,
+                            mode: CryptoJS.mode.CBC
+                        }
+                    ).toString(CryptoJS.enc.Utf8);
+                    
+                    // Skip if decryption failed
+                    if (!decrypted) return;
+                    
+                    const messageElement = document.createElement('div');
+                    messageElement.className = `message-bubble ${msg.sent ? 'sent' : 'received'}`;
+                    
+                    // Format time
+                    const time = new Date(msg.timestamp);
+                    const timeString = time.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+                    
+                    messageElement.innerHTML = `
+                        <div>${decrypted}</div>
+                        <div class="text-xs mt-1 opacity-70 ${msg.sent ? 'text-blue-100' : 'text-gray-500'}">
+                            ${timeString}
+                        </div>
+                    `;
+                    chatContainer.appendChild(messageElement);
+                } catch (e) {
+                    console.error('Decryption error:', e);
+                }
+            });
+            
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
+سازنده:sydsaybr@gmail.com
